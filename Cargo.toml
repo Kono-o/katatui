@@ -1,0 +1,23 @@
+[package]
+name = "katatui"
+version = "0.1.0"
+edition = "2024"
+authors = ["Kono"]
+description = "kono's tui making library."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Kono-o/katatui"
+keywords = ["tui", 'fetch', 'system-info', 'cli']
+categories = ["command-line-utilities"]
+homepage = "https://github.com/Kono-o/katatui"
+documentation = "https://docs.rs/katatui"
+
+[dependencies]
+ratatui = "0.29.0"
+mlua = { version = "0.11.3", features = ["lua54", "vendored"] }
+dirs = "6.0.0"
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
