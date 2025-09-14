@@ -118,7 +118,7 @@ impl<A: App> TUI<A> {
 
 impl<A: App> TUI<A> {
    pub(crate) fn reload(&mut self) -> AppOutput<()> {
-      let install_result = entry::install::<A>();
+      let install_result = entry::install_default_cfg_to_disk::<A>();
       if let AppOutput::Err(_) = install_result {
          return install_result;
       }

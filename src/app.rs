@@ -6,6 +6,7 @@ use ratatui::layout::Rect;
 pub trait App {
    const APP_NAME: &'static str;
    const CONFIG_FILE: &'static str;
+   const DEFAULT_CONFIG_SRC: &'static str;
    fn init(gloop: &mut GLoop, cfg_src: String) -> AppOutput<Self>
    where
       Self: Sized;

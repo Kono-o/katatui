@@ -2,7 +2,11 @@ use crate::app::{App, AppOutput};
 use crate::app_err;
 use crate::tui::TUI;
 
-pub fn run<A: App>() -> AppOutput<()> {
+pub fn tui<A: App>() {
+   run::<A>().out()
+}
+
+fn run<A: App>() -> AppOutput<()> {
    let install_result = install_default_cfg_to_disk::<A>();
    if let AppOutput::Err(_) = install_result {
       return install_result;
@@ -23,7 +27,6 @@ pub fn run<A: App>() -> AppOutput<()> {
 }
 
 pub(crate) fn install_default_cfg_to_disk<A: App>() -> AppOutput<()> {
-   pub const DEFAULT_CONFIG_SRC: &str = include_str!("../cfg_template.lua");
    let mut cfg_path = match dirs::config_dir() {
       Some(path) => path,
       None => return app_err!("failed to determine config dir"),
@@ -45,7 +48,7 @@ pub(crate) fn install_default_cfg_to_disk<A: App>() -> AppOutput<()> {
    } else {
       return app_err!("failed to get parent dir of config path");
    }
-   if let Err(e) = std::fs::write(&cfg_path, DEFAULT_CONFIG_SRC) {
+   if let Err(e) = std::fs::write(&cfg_path, A::DEFAULT_CONFIG_SRC) {
       return app_err!("failed to write default config at {:?}: {}", cfg_path, e);
    }
    AppOutput::nil()
