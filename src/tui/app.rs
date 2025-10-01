@@ -1,22 +1,18 @@
-use crate::tui::{GLoop, GState};
-use ratatui::buffer::Buffer;
-use ratatui::crossterm::event;
-use ratatui::layout::Rect;
+use crate::{TUIMutRef, TUIRef};
+use ratatui::crossterm::event::Event;
+use ratatui::prelude::Buffer;
 
 pub trait App {
    const APP_NAME: &'static str;
    const CONFIG_FILE: &'static str;
    const DEFAULT_CONFIG_SRC: &'static str;
-   fn init(gloop: &mut GLoop, cfg_src: String) -> AppOutput<Self>
+   fn init(tui: TUIMutRef) -> AppOutput<Self>
    where
       Self: Sized;
-   fn reload(&mut self, gloop: &mut GLoop, cfg_src: String) -> AppOutput<()>
+   fn logic(&mut self, tui: TUIMutRef, event: Option<Event>)
    where
       Self: Sized;
-   fn logic(&mut self, gloop: &mut GLoop, gstate: &mut GState, event: Option<event::Event>)
-   where
-      Self: Sized;
-   fn render(&self, gloop: &GLoop, gstate: &GState, area: Rect, buf: &mut Buffer)
+   fn render(&self, tui: TUIRef, buf: &mut Buffer)
    where
       Self: Sized;
 }
@@ -34,6 +30,9 @@ impl<T> AppOutput<T> {
          _ => {}
       }
    }
+   pub fn ok(t: T) -> Self {
+      AppOutput::Ok(t)
+   }
    pub fn nil() -> Self {
       AppOutput::Nil
    }
@@ -44,4 +43,10 @@ macro_rules! app_err {
     ($($arg:tt)*) => {
         AppOutput::Err(format!($($arg)*))
     };
+}
+#[macro_export]
+macro_rules! app_nil {
+   ($($arg:tt)*) => {
+      AppOutput::Nil
+   };
 }

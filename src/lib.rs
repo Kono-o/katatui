@@ -1,8 +1,5 @@
-pub mod app;
-pub mod entry;
 pub mod tui;
 
-pub use app::*;
 pub use tui::*;
 
 use crate::mlua::prelude::*;
