@@ -1,11 +1,11 @@
 mod app;
 mod io;
-mod loopr;
+mod runtime;
 mod state;
 mod tui;
 
 pub use app::*;
 pub use io::*;
-pub use loopr::*;
+pub use runtime::*;
 pub use state::*;
 pub use tui::*;

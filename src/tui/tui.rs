@@ -1,16 +1,17 @@
+use crate::app_err;
 use crate::tui::{install_cfg, read_cfg};
-use crate::{app_err, MsgType};
-use crate::{App, AppOutput, GLoop, GState};
+use crate::{App, AppOutput, GState, Runtime};
 use mlua::Lua;
 use ratatui::crossterm::event;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use std::time::{Duration, Instant};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug)]
 pub struct TUIRef<'a> {
-   pub gloop: &'a GLoop,
+   pub runtime: &'a Runtime,
    pub gstate: &'a GState,
    pub cfg: &'a Lua,
    pub src: &'a str,
@@ -18,13 +19,13 @@ pub struct TUIRef<'a> {
 
 impl<'a> TUIRef<'a> {
    pub(crate) fn from(
-      gloop: &'a GLoop,
+      runtime: &'a Runtime,
       gstate: &'a GState,
       cfg: &'a Lua,
       src: &'a str,
    ) -> TUIRef<'a> {
       TUIRef {
-         gloop,
+         runtime,
          gstate,
          cfg,
          src,
@@ -34,7 +35,7 @@ impl<'a> TUIRef<'a> {
 
 #[derive(Debug)]
 pub struct TUIMutRef<'a> {
-   pub gloop: &'a mut GLoop,
+   pub runtime: &'a mut Runtime,
    pub gstate: &'a mut GState,
    pub cfg: &'a mut Lua,
    pub src: &'a mut str,
@@ -42,13 +43,13 @@ pub struct TUIMutRef<'a> {
 
 impl<'a> TUIMutRef<'a> {
    pub(crate) fn from(
-      gloop: &'a mut GLoop,
+      runtime: &'a mut Runtime,
       gstate: &'a mut GState,
       cfg: &'a mut Lua,
       src: &'a mut str,
    ) -> TUIMutRef<'a> {
       TUIMutRef {
-         gloop,
+         runtime,
          gstate,
          cfg,
          src,
@@ -58,37 +59,62 @@ impl<'a> TUIMutRef<'a> {
 
 #[derive(Debug)]
 pub struct TUI<A: App> {
-   gloop: GLoop,
+   runtime: Runtime,
    gstate: GState,
    lua: Lua,
    src: String,
    app: A,
 }
 
+pub const DEBUG_COLOR: Color = Color::Green;
+
 impl<A: App> Widget for &TUI<A> {
    fn render(self, area: Rect, buf: &mut Buffer) {
       self.app.render(self.as_ref(), buf);
-      if self.gstate.is_debug() {
-         let line = Rect {
-            x: 0,
-            y: 0,
-            width: area.width,
-            height: 1,
-         };
 
-         let style = Style::new()
+      if self.gstate.is_debug() {
+         let line1 = Rect::new(0, area.height - 2, area.width, 1);
+         let t_fps = self.runtime.target_fps();
+         let t_tps = self.runtime.target_tps();
+         let fps_digits = t_fps.to_string().len();
+         let tps_digits = t_tps.to_string().len();
+         let frame_mod = self.runtime.frame() % t_fps;
+         let tick_mod = self.runtime.tick() % t_tps;
+
+         let left = format!(
+            " frame: {:0width_fps$} [{}/{}] tick: {:0width_tps$} [{}/{}] ",
+            frame_mod,
+            self.runtime.fps() as u16,
+            t_fps,
+            tick_mod,
+            self.runtime.tps() as u16,
+            t_tps,
+            width_fps = fps_digits,
+            width_tps = tps_digits,
+         );
+         let right = format!(" {}: {} ", A::APP_NAME, A::CONFIG_FILE);
+         let pad = (line1.width as usize).saturating_sub(left.width() + right.width());
+
+         let style1 = Style::default()
+            .bg(DEBUG_COLOR)
             .fg(Color::Black)
-            .add_modifier(Modifier::BOLD)
-            .bg(match self.gstate.msg.msg_type() {
-               MsgType::Info => Color::Blue,
-               MsgType::Event => Color::Green,
-               MsgType::Warn => Color::Yellow,
-               MsgType::Error => Color::Red,
-            });
-         Paragraph::new(self.gstate.msg.msg())
+            .add_modifier(Modifier::BOLD);
+         let text1 = Line::from(vec![
+            Span::styled(left, style1),
+            Span::styled(" ".repeat(pad), style1),
+            Span::styled(right, style1),
+         ]);
+
+         Paragraph::new(text1)
             .block(Block::default())
-            .style(style)
-            .render(line, buf);
+            .render(line1, buf);
+
+         let line2 = Rect::new(0, area.height - 1, area.width, 1);
+         let style2 = Style::default().fg(self.gstate.msg.msg_type().color());
+         let text2 = Text::from(Span::styled(format!(" {}", self.gstate.msg.msg()), style2));
+         Paragraph::new(text2)
+            .block(Block::default())
+            .render(line2, buf);
       }
    }
 }
@@ -149,11 +175,11 @@ impl<A: App> TUI<A> {
    }
 
    pub(crate) fn init(mut lua: Lua, mut src: String) -> AppOutput<TUI<A>> {
-      let mut gloop = GLoop::new();
+      let mut runtime = Runtime::new();
       let mut gstate = GState::new();
 
       let tui_ref_mut = TUIMutRef {
-         gloop: &mut gloop,
+         runtime: &mut runtime,
          gstate: &mut gstate,
          cfg: &mut lua,
          src: &mut src,
@@ -162,7 +188,7 @@ impl<A: App> TUI<A> {
       match A::init(tui_ref_mut) {
          AppOutput::Ok(app) => {
             let mut tui = Self {
-               gloop,
+               runtime,
                app,
                gstate,
                lua,
@@ -178,7 +204,7 @@ impl<A: App> TUI<A> {
 
    pub(crate) fn as_ref(&self) -> TUIRef {
       TUIRef {
-         gloop: &self.gloop,
+         runtime: &self.runtime,
          gstate: &self.gstate,
          cfg: &self.lua,
          src: &self.src,
@@ -237,8 +263,8 @@ impl<A: App> TUI<A> {
       let mut last_update = Instant::now();
       let mut last_render = Instant::now();
 
-      let logic_step = Duration::from_secs_f64(1.0 / self.gloop.t_tps as f64);
-      let render_step = Duration::from_secs_f64(1.0 / self.gloop.t_fps as f64);
+      let logic_step = Duration::from_secs_f64(1.0 / self.runtime.t_tps as f64);
+      let render_step = Duration::from_secs_f64(1.0 / self.runtime.t_fps as f64);
 
       let update_budget = std::cmp::max(logic_step, render_step);
       let mut last_tps_check = Instant::now();
@@ -258,11 +284,11 @@ impl<A: App> TUI<A> {
                }
             };
             self.lua_update_fn_call();
-            self.gstate.msg.clear();
+            self.gstate.msg.set_info_msg("");
             if eve {
                if let Ok(e) = event::read() {
                   let tui_mut = TUIMutRef::from(
-                     &mut self.gloop,
+                     &mut self.runtime,
                      &mut self.gstate,
                      &mut self.lua,
                      &mut self.src,
@@ -271,7 +297,7 @@ impl<A: App> TUI<A> {
                }
             } else {
                let tui_mut = TUIMutRef::from(
-                  &mut self.gloop,
+                  &mut self.runtime,
                   &mut self.gstate,
                   &mut self.lua,
                   &mut self.src,
@@ -284,8 +310,8 @@ impl<A: App> TUI<A> {
                self.reload_lua();
             }
 
-            self.gloop.t_ms = tick_start.elapsed().as_micros();
-            self.gloop.tick = self.gloop.tick.wrapping_add(1);
+            self.runtime.t_ms = tick_start.elapsed().as_micros();
+            self.runtime.tick = self.runtime.tick.wrapping_add(1);
 
             last_update += logic_step;
             logic_counter += 1;
@@ -296,11 +322,11 @@ impl<A: App> TUI<A> {
          while time_used < update_budget && now.duration_since(last_render) >= render_step {
             let frame_start = Instant::now();
 
-            let delta = frame_start.duration_since(self.gloop.last).as_secs_f32();
+            let delta = frame_start.duration_since(self.runtime.last).as_secs_f32();
             if delta > 0.0 {
-               self.gloop.fps = 1.0 / delta;
+               self.runtime.fps = 1.0 / delta;
             }
-            self.gloop.last = frame_start;
+            self.runtime.last = frame_start;
 
             match terminal.draw(|frame: &mut Frame| {
                frame.render_widget(&*self, frame.area());
@@ -310,18 +336,18 @@ impl<A: App> TUI<A> {
                }
                _ => {}
             };
-            self.gloop.frame = self.gloop.frame.wrapping_add(1);
+            self.runtime.frame = self.runtime.frame.wrapping_add(1);
 
-            self.gloop.f_ms = frame_start.elapsed().as_micros();
+            self.runtime.f_ms = frame_start.elapsed().as_micros();
             last_render += render_step;
             time_used += frame_start.elapsed();
          }
          if last_tps_check.elapsed() >= Duration::from_secs(1) {
-            self.gloop.tps = logic_counter as f32;
+            self.runtime.tps = logic_counter as f32;
             logic_counter = 0;
             last_tps_check = Instant::now();
          }
-         self.gloop.budget = update_budget.as_micros();
+         self.runtime.budget = update_budget.as_micros();
       }
       AppOutput::nil()
    }

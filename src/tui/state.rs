@@ -1,3 +1,5 @@
+use ratatui::prelude::Color;
+
 #[derive(Debug)]
 pub struct Msg {
    msg: String,
@@ -10,6 +12,17 @@ pub enum MsgType {
    Event,
    Warn,
    Error,
+}
+
+impl MsgType {
+   pub fn color(&self) -> Color {
+      match self {
+         MsgType::Info => Color::Blue,
+         MsgType::Event => Color::Green,
+         MsgType::Warn => Color::Yellow,
+         MsgType::Error => Color::Red,
+      }
+   }
 }
 
 impl Msg {

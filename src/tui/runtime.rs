@@ -2,7 +2,7 @@ use crate::{LuaResult, LuaTable};
 use std::time::Instant;
 
 #[derive(Debug)]
-pub struct GLoop {
+pub struct Runtime {
    pub(crate) start: Instant,
    pub(crate) frame: u32,
    pub(crate) tick: u32,
@@ -16,7 +16,7 @@ pub struct GLoop {
    pub(crate) last: Instant,
 }
 
-impl GLoop {
+impl Runtime {
    pub(crate) fn new() -> Self {
       let now = Instant::now();
       Self {
