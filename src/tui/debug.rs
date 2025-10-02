@@ -65,57 +65,16 @@ impl Msg {
 }
 
 #[derive(Debug)]
-pub struct GState {
-   pub(crate) reload: bool,
-   pub(crate) just_reloaded: bool,
-   pub(crate) debug: bool,
-   pub(crate) exit: bool,
-   pub msg: Msg,
+pub struct Debug {
+   pub current_log: Msg,
+   pub(crate) current_fn: Msg,
 }
 
-impl GState {
+impl Debug {
    pub(crate) fn new() -> Self {
       Self {
-         reload: false,
-         just_reloaded: false,
-         debug: false,
-         exit: false,
-         msg: Msg::new("???", MsgType::Info),
+         current_log: Msg::new("???", MsgType::Info),
+         current_fn: Msg::new("???", MsgType::Info),
       }
-   }
-
-   pub fn request_reload(&mut self) {
-      self.reload = true;
-   }
-   pub fn is_reloading(&self) -> bool {
-      self.reload
-   }
-   pub fn just_reloaded(&self) -> bool {
-      self.just_reloaded
-   }
-   pub fn request_exit(&mut self) {
-      self.exit = true;
-   }
-   pub fn is_running(&self) -> bool {
-      !self.exit
-   }
-   pub fn toggle_debug(&mut self) {
-      self.debug = !self.debug;
-   }
-   pub fn is_debug(&self) -> bool {
-      self.debug
-   }
-
-   pub(crate) fn set_reload(&mut self, req: bool) {
-      self.reload = req;
-   }
-   pub(crate) fn set_just_reloaded(&mut self, req: bool) {
-      self.just_reloaded = req;
-   }
-   pub(crate) fn set_debug(&mut self, dbg: bool) {
-      self.debug = dbg;
-   }
-   pub(crate) fn set_exit(&mut self, exit: bool) {
-      self.exit = exit;
    }
 }

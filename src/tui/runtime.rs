@@ -14,6 +14,13 @@ pub struct Runtime {
    pub(crate) f_ms: u128,
    pub(crate) t_ms: u128,
    pub(crate) last: Instant,
+   pub(crate) fps_accum: f32,
+   pub(crate) fps_count: u32,
+
+   pub(crate) is_reload: bool,
+   pub(crate) was_reload: bool,
+   pub(crate) is_debug: bool,
+   pub(crate) is_exit: bool,
 }
 
 impl Runtime {
@@ -22,6 +29,7 @@ impl Runtime {
       Self {
          start: now,
          last: now,
+         fps_accum: 0.0,
          frame: 0,
          tick: 0,
          t_fps: 16,
@@ -31,6 +39,11 @@ impl Runtime {
          budget: 0,
          f_ms: 0,
          t_ms: 0,
+         is_reload: false,
+         was_reload: false,
+         is_debug: false,
+         is_exit: false,
+         fps_count: 0,
       }
    }
 
@@ -70,13 +83,48 @@ impl Runtime {
    pub fn tick(&self) -> u32 {
       self.tick
    }
-   pub fn f_ms(&self) -> u128 {
+   pub fn frame_ms(&self) -> u128 {
       self.f_ms
    }
-   pub fn t_ms(&self) -> u128 {
+   pub fn tick_ms(&self) -> u128 {
       self.t_ms
    }
    pub fn budget(&self) -> u128 {
       self.budget
+   }
+
+   pub fn request_reload(&mut self) {
+      self.is_reload = true;
+   }
+   pub fn is_reloading(&self) -> bool {
+      self.is_reload
+   }
+   pub fn just_reloaded(&self) -> bool {
+      self.was_reload
+   }
+   pub fn request_exit(&mut self) {
+      self.is_exit = true;
+   }
+   pub fn is_running(&self) -> bool {
+      !self.is_exit
+   }
+   pub fn toggle_debug(&mut self) {
+      self.is_debug = !self.is_debug;
+   }
+   pub fn is_debug(&self) -> bool {
+      self.is_debug
+   }
+
+   pub(crate) fn set_reload(&mut self, req: bool) {
+      self.is_reload = req;
+   }
+   pub(crate) fn set_just_reloaded(&mut self, req: bool) {
+      self.was_reload = req;
+   }
+   pub(crate) fn set_debug(&mut self, dbg: bool) {
+      self.is_debug = dbg;
+   }
+   pub(crate) fn set_exit(&mut self, exit: bool) {
+      self.is_exit = exit;
    }
 }

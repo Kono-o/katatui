@@ -1,6 +1,11 @@
 use crate::{app_err, App, AppOutput};
+use mlua::Lua;
 
-pub(crate) fn install_cfg<A: App>() -> AppOutput<String> {
+pub(crate) type CfgPath = Option<String>;
+pub(crate) type CfgSrc = Option<String>;
+pub(crate) type Cfg = Option<Lua>;
+
+pub(crate) fn install_cfg<A: App>() -> AppOutput<CfgPath> {
    let mut cfg_path = match dirs::config_dir() {
       None => return app_err!("failed to determine config dir"),
       Some(path) => path,
@@ -8,10 +13,16 @@ pub(crate) fn install_cfg<A: App>() -> AppOutput<String> {
    let mut cfg_app_path = cfg_path.clone();
    cfg_app_path.push(A::APP_NAME.to_string());
 
-   let mut cfg_app_file = cfg_app_path.clone();
-   cfg_app_file.push(A::CONFIG_FILE.to_string());
+   let ok = AppOutput::ok(Some(cfg_app_path.to_string_lossy().to_string()));
 
-   let ok = AppOutput::ok(cfg_app_path.to_string_lossy().to_string());
+   let cfg_file = match A::CONFIG_FILE {
+      None => return ok,
+      Some(f) => f,
+   };
+
+   let mut cfg_app_file = cfg_app_path.clone();
+   cfg_app_file.push(cfg_file.to_string());
+
    if cfg_app_file.exists() {
       return ok;
    }
@@ -39,14 +50,18 @@ pub(crate) fn install_cfg<A: App>() -> AppOutput<String> {
    ok
 }
 
-pub(crate) fn read_cfg<A: App>() -> AppOutput<String> {
+pub(crate) fn read_cfg<A: App>() -> AppOutput<CfgSrc> {
    let mut cfg_path = match dirs::config_dir() {
       Some(path) => path,
       None => return app_err!("failed to determine config dir"),
    };
-   cfg_path.push(format!("{}/{}", A::APP_NAME, A::CONFIG_FILE));
+   let cfg_file = match A::CONFIG_FILE {
+      None => return AppOutput::ok(None),
+      Some(f) => f,
+   };
+   cfg_path.push(format!("{}/{}", A::APP_NAME, cfg_file));
    match std::fs::read_to_string(&cfg_path) {
-      Ok(s) => AppOutput::Ok(s),
+      Ok(src) => AppOutput::Ok(Some(src)),
       Err(e) => app_err!("failed to read config at {:?}: {}", cfg_path, e),
    }
 }
