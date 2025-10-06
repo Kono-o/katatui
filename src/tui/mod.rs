@@ -1,13 +1,13 @@
 mod app;
 mod debug;
+mod fmt;
 mod io;
-mod rgb;
 mod runtime;
 mod tui;
 
 pub use app::*;
 pub use debug::*;
+pub use fmt::*;
 pub use io::*;
-pub use rgb::*;
 pub use runtime::*;
 pub use tui::*;

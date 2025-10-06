@@ -4,6 +4,7 @@ pub use tui::*;
 
 use crate::mlua::prelude::*;
 pub use dirs::*;
+pub use kolor::*;
 pub use mlua;
 pub use ratatui::crossterm::event::*;
 pub use ratatui::crossterm::*;
