@@ -7,7 +7,7 @@ description = "kono's tui making library."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/Kono-o/katatui"
-keywords = ["tui", 'fetch', 'system-info', 'cli']
+keywords = ["tui", 'cli']
 categories = ["command-line-utilities"]
 homepage = "https://github.com/Kono-o/katatui"
 documentation = "https://docs.rs/katatui"
@@ -17,7 +17,7 @@ ratatui = "0.29.0"
 mlua = { version = "0.11.3", features = ["lua54", "vendored"] }
 dirs = "6.0.0"
 unicode-width = "0.2.0"
-kolor = { path = "../kolor" }
+kolor = { git = "https://github.com/Kono-o/kolor" }
 
 [profile.release]
 strip = true
