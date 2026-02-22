@@ -1,12 +1,15 @@
 use crate::app_err;
-use crate::tui::{install_cfg, read_cfg, Cfg, CfgSrc};
+use crate::tui::{Cfg, CfgSrc, install_cfg, read_cfg};
 use crate::{App, AppOutput, Debug, Runtime};
 use mlua::Lua;
-use ratatui::crossterm::event;
+use ratatui::crossterm::event::EnableMouseCapture;
+use ratatui::crossterm::terminal::enable_raw_mode;
+use ratatui::crossterm::{event, execute};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use std::env;
+use std::io::stdout;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
 
@@ -16,6 +19,7 @@ pub struct TUIRef<'a> {
    pub debug: &'a Debug,
    pub cfg: &'a Cfg,
    pub args: &'a Vec<String>,
+   pub area: Rect,
 }
 
 impl<'a> TUIRef<'a> {
@@ -24,12 +28,14 @@ impl<'a> TUIRef<'a> {
       debug: &'a Debug,
       cfg: &'a Cfg,
       args: &'a Vec<String>,
+      area: Rect,
    ) -> TUIRef<'a> {
       TUIRef {
          runtime,
          debug,
          cfg,
          args,
+         area,
       }
    }
 }
@@ -40,6 +46,7 @@ pub struct TUIMutRef<'a> {
    pub debug: &'a mut Debug,
    pub cfg: &'a mut Cfg,
    pub args: &'a mut Vec<String>,
+   pub area: Rect,
 }
 impl<'a> TUIMutRef<'a> {
    pub(crate) fn from(
@@ -47,12 +54,14 @@ impl<'a> TUIMutRef<'a> {
       debug: &'a mut Debug,
       cfg: &'a mut Cfg,
       args: &'a mut Vec<String>,
+      area: Rect,
    ) -> TUIMutRef<'a> {
       TUIMutRef {
          runtime,
          debug,
          cfg,
          args,
+         area,
       }
    }
 }
@@ -119,9 +128,11 @@ impl<A: App> TUI<A> {
          }
          None => {}
       }
-
+      //enable_raw_mode().ok();
+      //let _ = execute!(stdout(), EnableMouseCapture);
       let mut terminal = ratatui::init();
-      output = match TUI::<A>::init(cfg) {
+      let buf = terminal.current_buffer_mut();
+      output = match TUI::<A>::init(cfg, buf) {
          AppOutput::Ok(mut tui) => {
             tui.reload_lua();
             tui.run_loop(&mut terminal);
@@ -134,7 +145,7 @@ impl<A: App> TUI<A> {
       output.out()
    }
 
-   pub(crate) fn init(mut cfg: Cfg) -> AppOutput<TUI<A>> {
+   pub(crate) fn init(mut cfg: Cfg, buf: &mut Buffer) -> AppOutput<TUI<A>> {
       let mut runtime = Runtime::new();
       let mut debug = Debug::new();
       let mut args = env::args().skip(1).collect();
@@ -144,9 +155,10 @@ impl<A: App> TUI<A> {
          debug: &mut debug,
          cfg: &mut cfg,
          args: &mut args,
+         area: buf.area,
       };
 
-      let app = A::init(tui_ref_mut);
+      let app = A::init(tui_ref_mut, buf);
       let mut tui = Self {
          runtime,
          app,
@@ -221,7 +233,7 @@ impl<A: App> TUI<A> {
          // --- Logic Tick ---
          if now.duration_since(last_update) >= logic_step {
             let tick_start = Instant::now();
-            self.logic();
+            self.logic(terminal);
 
             self.runtime.t_ms = tick_start.elapsed().as_micros();
             self.runtime.tick = self.runtime.tick.wrapping_add(1);
@@ -258,7 +270,7 @@ impl<A: App> TUI<A> {
       }
    }
 
-   pub(crate) fn logic(&mut self) {
+   pub(crate) fn logic(&mut self, terminal: &mut DefaultTerminal) {
       let eve = match event::poll(Duration::ZERO) {
          Ok(ev) => ev,
          Err(_) => {
@@ -268,6 +280,7 @@ impl<A: App> TUI<A> {
       self.lua_fn_call("tick");
       self.debug.current_log.set_info_msg("");
       self.debug.current_fn.set_info_msg("tick");
+      let area = terminal.current_buffer_mut().area;
       if eve {
          if let Ok(e) = event::read() {
             let tui_mut = TUIMutRef::from(
@@ -275,6 +288,7 @@ impl<A: App> TUI<A> {
                &mut self.debug,
                &mut self.cfg,
                &mut self.args,
+               area,
             );
             self.app.logic(tui_mut, Some(e));
          }
@@ -284,6 +298,7 @@ impl<A: App> TUI<A> {
             &mut self.debug,
             &mut self.cfg,
             &mut self.args,
+            area,
          );
          self.app.logic(tui_mut, None);
       }
@@ -307,7 +322,7 @@ impl<A: App> TUI<A> {
 impl<A: App> Widget for &TUI<A> {
    fn render(self, area: Rect, buf: &mut Buffer) {
       self.app.render(
-         TUIRef::from(&self.runtime, &self.debug, &self.cfg, &self.args),
+         TUIRef::from(&self.runtime, &self.debug, &self.cfg, &self.args, area),
          buf,
       );
 

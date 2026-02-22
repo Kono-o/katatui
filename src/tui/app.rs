@@ -6,7 +6,7 @@ pub trait App {
    const APP_NAME: &'static str;
    const CONFIG_FILE: Option<&'static str>;
    const DEFAULT_CONFIG_SRC: &'static str;
-   fn init(tui: TUIMutRef) -> Self
+   fn init(tui: TUIMutRef, buf: &mut Buffer) -> Self
    where
       Self: Sized;
    fn logic(&mut self, tui: TUIMutRef, event: Option<Event>)

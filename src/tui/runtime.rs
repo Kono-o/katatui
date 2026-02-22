@@ -83,6 +83,9 @@ impl Runtime {
    pub fn tick(&self) -> u32 {
       self.tick
    }
+   pub fn elapsed(&self) -> f32 {
+      self.start.elapsed().as_secs_f32()
+   }
    pub fn frame_ms(&self) -> u128 {
       self.f_ms
    }

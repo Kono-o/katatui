@@ -1,12 +1,13 @@
 use kolor::RGB;
 use ratatui::prelude::{Color, Modifier};
 use ratatui::style::Style;
+use ratatui::text::Line;
 
 pub trait Stylify {
-   fn bold(&mut self);
-   fn italic(&mut self);
-   fn strike(&mut self);
-   fn underline(&mut self);
+   fn bolden(&mut self);
+   fn italize(&mut self);
+   fn striked(&mut self);
+   fn underlined(&mut self);
    fn fore(&mut self, rgb: RGB);
    fn back(&mut self, rgb: RGB);
    fn from_fg(fg: RGB) -> Self;
@@ -26,17 +27,17 @@ pub fn rgb_to_color(rgb: RGB) -> Color {
 }
 
 impl Stylify for Style {
-   fn bold(&mut self) {
+   fn bolden(&mut self) {
       *self = self.add_modifier(Modifier::BOLD)
    }
 
-   fn italic(&mut self) {
+   fn italize(&mut self) {
       *self = self.add_modifier(Modifier::ITALIC)
    }
-   fn strike(&mut self) {
+   fn striked(&mut self) {
       *self = self.add_modifier(Modifier::CROSSED_OUT)
    }
-   fn underline(&mut self) {
+   fn underlined(&mut self) {
       *self = self.add_modifier(Modifier::UNDERLINED)
    }
 
