@@ -6,7 +6,7 @@ use prost::Message as ProstMessage;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-const SLEEP_MS: u64 = 200;
+const SLEEP_MS: u64 = 25;
 
 pub trait SocketAdapter: Send + 'static {
    type Send: ProstMessage + Default + Send + 'static;
