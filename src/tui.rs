@@ -2,6 +2,7 @@ use std::io::Stdout;
 use std::time::Duration;
 
 use anyhow::Result;
+use crossterm::event::{Event, MouseEventKind};
 use crossterm::{
    event::{DisableMouseCapture, EnableMouseCapture},
    execute,
@@ -13,7 +14,7 @@ use tokio::sync::mpsc;
 use crate::input::{self, InputEvent};
 use crate::socket::{Socket, SocketAdapter, SocketEvent};
 
-const TICK_MS: u64 = 100;
+const TICK_MS: u64 = 10;
 
 #[derive(Debug)]
 pub enum TUIEvent<A: SocketAdapter> {
@@ -24,16 +25,18 @@ pub enum TUIEvent<A: SocketAdapter> {
 
 pub trait TUIApp<A: SocketAdapter> {
    fn logic(&mut self, tui: &mut TUI<A>, event: TUIEvent<A>) -> bool;
-   fn render(&mut self, frame: &mut Frame, draws: u64, has_socket: bool);
+   fn render(&mut self, tui: &TUI<A>, frame: &mut Frame);
 }
 
 pub struct TUI<A: SocketAdapter> {
    term: Terminal<CrosstermBackend<Stdout>>,
-   draws: u64,
-   force_redraw: bool,
+   redraw_tx: mpsc::UnboundedSender<()>,
+   redraw_rx: mpsc::UnboundedReceiver<()>,
    socket_rx: Option<mpsc::Receiver<SocketEvent<A>>>,
    input_rx: mpsc::Receiver<InputEvent>,
    pub socket_tx: Option<mpsc::Sender<A::Send>>,
+   ticks: u64,
+   draws: u64,
 }
 
 impl<A: SocketAdapter> TUI<A> {
@@ -62,24 +65,36 @@ impl<A: SocketAdapter> TUI<A> {
       let mut term = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
       term.clear()?;
 
+      let (redraw_tx, redraw_rx) = mpsc::unbounded_channel();
+
       Ok(Self {
          term,
-         draws: 0,
-         force_redraw: false,
+         redraw_tx,
+         redraw_rx,
          socket_rx,
          input_rx: input::spawn(),
          socket_tx,
+         ticks: 0,
+         draws: 0,
       })
    }
 
-   pub fn draws(&self) -> u64 {
-      self.draws
-   }
    pub fn has_socket(&self) -> bool {
       self.socket_rx.is_some()
    }
-   pub fn redraw(&mut self) {
-      self.force_redraw = true;
+
+   pub fn ticks(&self) -> u64 {
+      self.ticks
+   }
+   pub fn tick_ms(&self) -> u64 {
+      TICK_MS
+   }
+   pub fn draws(&self) -> u64 {
+      self.draws
+   }
+
+   pub fn redraw(&self) {
+      let _ = self.redraw_tx.send(());
    }
 
    pub fn send(&self, msg: A::Send) {
@@ -88,13 +103,17 @@ impl<A: SocketAdapter> TUI<A> {
       }
    }
 
-   fn draw_frame(&mut self, app: &mut impl TUIApp<A>) -> Result<()> {
+   fn draw(&mut self, app: &mut impl TUIApp<A>) -> Result<()> {
       self.draws += 1;
-      self.force_redraw = false;
-      let draws = self.draws;
-      let has_socket = self.has_socket();
-      self.term.draw(|f| app.render(f, draws, has_socket))?;
+      // SAFETY: we split the borrow — term is mutably borrowed for draw,
+      // the rest of self is passed as an immutable ref inside the closure.
+      let tui_ref = unsafe { &*(self as *const Self) };
+      self.term.draw(|f| app.render(tui_ref, f))?;
       Ok(())
+   }
+
+   fn flush_redraws(&mut self) {
+      while self.redraw_rx.try_recv().is_ok() {}
    }
 
    fn cleanup(&mut self) -> Result<()> {
@@ -108,52 +127,97 @@ impl<A: SocketAdapter> TUI<A> {
       Ok(())
    }
 
-   fn try_recv_next(&mut self) -> Option<TUIEvent<A>> {
-      if let Some(rx) = &mut self.socket_rx {
-         if let Ok(e) = rx.try_recv() {
-            return Some(TUIEvent::Socket(e));
-         }
-      }
-      if let Ok(e) = self.input_rx.try_recv() {
-         return Some(TUIEvent::Input(e));
-      }
-      None
-   }
-
    pub async fn run(&mut self, app: &mut impl TUIApp<A>) -> Result<()> {
-      self.draw_frame(app)?;
+      self.draw(app)?;
 
       let mut tick = tokio::time::interval(Duration::from_millis(TICK_MS));
-      tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+      tick.tick().await; // consume the immediate first tick
 
       loop {
-         let first = tokio::select! {
-            _ = tick.tick() => TUIEvent::Tick,
-            Some(e) = async {
-               match &mut self.socket_rx {
-                  Some(rx) => rx.recv().await,
-                  None     => std::future::pending().await,
-               }
-            } => TUIEvent::Socket(e),
-            Some(e) = self.input_rx.recv() => TUIEvent::Input(e),
+         enum Wake<A: SocketAdapter> {
+            Redraw,
+            Tick,
+            Input(InputEvent),
+            Socket(SocketEvent<A>),
+         }
+
+         let wake = tokio::select! {
+             _ = self.redraw_rx.recv() => Wake::Redraw,
+             _ = tick.tick() => Wake::Tick,
+             Some(e) = async {
+                 match &mut self.socket_rx {
+                     Some(rx) => rx.recv().await,
+                     None => std::future::pending().await,
+                 }
+             } => Wake::Socket(e),
+             Some(e) = self.input_rx.recv() => Wake::Input(e),
          };
 
-         if app.logic(self, first) {
-            break;
-         }
-
-         while let Some(event) = self.try_recv_next() {
-            if app.logic(self, event) {
-               break;
+         match wake {
+            Wake::Redraw => {
+               self.draw(app)?;
             }
-         }
-
-         if self.force_redraw {
-            self.draw_frame(app)?;
+            Wake::Tick => {
+               self.ticks += 1;
+               if app.logic(self, TUIEvent::Tick) {
+                  break;
+               }
+            }
+            Wake::Input(e) => {
+               let mut should_draw = triggers_redraw(&e);
+               if app.logic(self, TUIEvent::Input(e)) {
+                  break;
+               }
+               loop {
+                  match self.input_rx.try_recv() {
+                     Ok(e) => {
+                        should_draw |= triggers_redraw(&e);
+                        if app.logic(self, TUIEvent::Input(e)) {
+                           self.cleanup()?;
+                           return Ok(());
+                        }
+                     }
+                     Err(_) => break,
+                  }
+               }
+               if should_draw {
+                  self.flush_redraws();
+                  self.draw(app)?;
+               }
+            }
+            Wake::Socket(e) => {
+               if app.logic(self, TUIEvent::Socket(e)) {
+                  break;
+               }
+               loop {
+                  match self.socket_rx.as_mut().and_then(|rx| rx.try_recv().ok()) {
+                     Some(e) => {
+                        if app.logic(self, TUIEvent::Socket(e)) {
+                           self.cleanup()?;
+                           return Ok(());
+                        }
+                     }
+                     None => break,
+                  }
+               }
+               self.flush_redraws();
+               self.draw(app)?;
+            }
          }
       }
 
       self.cleanup()?;
       Ok(())
    }
+}
+
+fn triggers_redraw(e: &InputEvent) -> bool {
+   match e {
+      InputEvent::Crossterm(Event::Mouse(m)) => match m.kind {
+         MouseEventKind::Moved => return false,
+         _ => {}
+      },
+      _ => {}
+   }
+   true
 }

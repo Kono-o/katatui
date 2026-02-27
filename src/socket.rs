@@ -6,7 +6,8 @@ use prost::Message as ProstMessage;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-const SLEEP_MS: u64 = 25;
+const RECONNECT_MS: u64 = 400;
+const WAIT_MS: u64 = 300;
 
 pub trait SocketAdapter: Send + 'static {
    type Send: ProstMessage + Default + Send + 'static;
@@ -15,10 +16,19 @@ pub trait SocketAdapter: Send + 'static {
 
 #[derive(Debug)]
 pub enum SocketEvent<A: SocketAdapter> {
+   /// Socket task has started and is attempting its first connection.
    Starting,
+   /// Successfully established a WebSocket connection.
    Connected,
-   Disconnected,
-   Reconnecting(u64),
+   /// The server cleanly closed the connection (graceful close frame).
+   Closed,
+   /// An active connection dropped unexpectedly; will attempt to reconnect.
+   ConnectionLost,
+   /// A connection attempt failed while no session was active.
+   CouldntConnect,
+   /// About to wait `ms` milliseconds before the next reconnect attempt.
+   AttemptingToReconnectIn(u64),
+   /// A successfully decoded packet was received from the server.
    Packet(A::Receive),
 }
 
@@ -43,12 +53,25 @@ impl<A: SocketAdapter> Socket<A> {
       let url = format!("ws://localhost:{}/ws", self.port);
       let _ = tx.send(SocketEvent::Starting).await;
 
+      // True only while a session is currently active. Reset to false
+      // as soon as the session ends so failed reconnects emit CouldntConnect.
+      let mut connected = false;
+
       loop {
          let ws = match connect_async(&url).await {
             Ok((ws, _)) => ws,
             Err(_) => {
-               tokio::time::sleep(Duration::from_millis(SLEEP_MS)).await;
-               let _ = tx.send(SocketEvent::Reconnecting(SLEEP_MS)).await;
+               if connected {
+                  let _ = tx.send(SocketEvent::ConnectionLost).await;
+                  connected = false;
+               } else {
+                  let _ = tx.send(SocketEvent::CouldntConnect).await;
+               }
+               tokio::time::sleep(Duration::from_millis(WAIT_MS)).await; // let the UI catch up
+               let _ = tx
+                  .send(SocketEvent::AttemptingToReconnectIn(RECONNECT_MS))
+                  .await;
+               tokio::time::sleep(Duration::from_millis(RECONNECT_MS)).await;
                continue;
             }
          };
@@ -80,13 +103,19 @@ impl<A: SocketAdapter> Socket<A> {
             }
          };
 
+         connected = false;
+
          if graceful {
-            let _ = tx.send(SocketEvent::Disconnected).await;
+            let _ = tx.send(SocketEvent::Closed).await;
             return;
          }
 
-         tokio::time::sleep(Duration::from_millis(SLEEP_MS)).await;
-         let _ = tx.send(SocketEvent::Reconnecting(SLEEP_MS)).await;
+         let _ = tx.send(SocketEvent::ConnectionLost).await;
+         tokio::time::sleep(Duration::from_millis(WAIT_MS)).await;
+         let _ = tx
+            .send(SocketEvent::AttemptingToReconnectIn(RECONNECT_MS))
+            .await;
+         tokio::time::sleep(Duration::from_millis(RECONNECT_MS)).await;
       }
    }
 }
