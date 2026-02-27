@@ -8,6 +8,7 @@ use crossterm::{
    execute,
    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use ratatui::prelude::Rect;
 use ratatui::{Frame, Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
@@ -95,6 +96,14 @@ impl<A: SocketAdapter> TUI<A> {
 
    pub fn redraw(&self) {
       let _ = self.redraw_tx.send(());
+   }
+
+   pub fn area(&self) -> Rect {
+      self
+         .term
+         .size()
+         .map(|s| Rect::new(0, 0, s.width, s.height))
+         .unwrap_or_default()
    }
 
    pub fn send(&self, msg: A::Send) {
