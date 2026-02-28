@@ -25,6 +25,7 @@ pub enum TUIEvent<A: SocketAdapter> {
 }
 
 pub trait TUIApp<A: SocketAdapter> {
+   fn init(&mut self, tui: &mut TUI<A>);
    fn logic(&mut self, tui: &mut TUI<A>, event: TUIEvent<A>) -> bool;
    fn render(&mut self, tui: &TUI<A>, frame: &mut Frame);
 }
@@ -137,6 +138,7 @@ impl<A: SocketAdapter> TUI<A> {
    }
 
    pub async fn run(&mut self, app: &mut impl TUIApp<A>) -> Result<()> {
+      app.init(self);
       self.draw(app)?;
 
       let mut tick = tokio::time::interval(Duration::from_millis(TICK_MS));
